@@ -234,7 +234,7 @@ CREATE OR REPLACE TABLE AGENTS.DBT_COLUMN (
 | `column_name` | Key from `node.columns`. |
 | `data_type` | `column.data_type`; empty string when missing. |
 | `description` | `column.description`; empty string when missing. |
-| `meta` | `column.config.meta` when set, else top-level `column.meta`, else `{}`; serialized as a JSON string. dbt 1.10 and later nest column `meta` under `config`; earlier projects declare it at the top level, and both are read. |
+| `meta` | `column.config.meta` when set, else top-level `column.meta`, else `{}`; serialized as a JSON string. |
 
 ### `AGENTS.DBT_DEPENDENCY`
 

@@ -47,18 +47,15 @@ class FakeDestination:
         self.calls.append(("upsert", table.name, list(rows)))
 
 
-def _column_meta(dest: FakeDestination) -> dict[str, str]:
-    """Map column_name to its serialized meta from the dbt_column insert."""
-    meta_index = [c.name for c in DBT_COLUMN.columns].index("meta")
-    inserts = [c for c in dest.calls if c[0] == "insert" and c[1] == DBT_COLUMN.name]
-    return {row[1]: row[meta_index] for row in inserts[0][2]}
-
-
 class DbtColumnMetaTests(unittest.TestCase):
     def setUp(self):
-        self.dest = FakeDestination()
-        _ingest(self.dest, _MANIFEST)
-        self.meta = _column_meta(self.dest)
+        dest = FakeDestination()
+        _ingest(dest, _MANIFEST)
+        insert = next(c for c in dest.calls if c[0] == "insert" and c[1] == DBT_COLUMN.name)
+        self.meta = {
+            column_name: meta
+            for _model_id, column_name, _data_type, _description, meta in insert[2]
+        }
 
     def test_column_meta_serialized_from_config(self):
         self.assertEqual(
