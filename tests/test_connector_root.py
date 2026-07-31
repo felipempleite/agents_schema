@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from agents_schema import dbt, lookml, osi, sigma, skills, snowflake_semantic
+from agents_schema import dbt, lookml, omni, osi, sigma, skills, snowflake_semantic
 from agents_schema.skills import SkillFile
 
 
