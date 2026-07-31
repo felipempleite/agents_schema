@@ -223,6 +223,7 @@ CREATE OR REPLACE TABLE AGENTS.DBT_COLUMN (
   column_name VARCHAR NOT NULL,
   data_type   VARCHAR,
   description TEXT,
+  meta        TEXT,
   PRIMARY KEY (model_id, column_name)
 );
 ```
@@ -233,6 +234,7 @@ CREATE OR REPLACE TABLE AGENTS.DBT_COLUMN (
 | `column_name` | Key from `node.columns`. |
 | `data_type` | `column.data_type`; empty string when missing. |
 | `description` | `column.description`; empty string when missing. |
+| `meta` | `column.config.meta` when set, else top-level `column.meta`, else `{}`; serialized as a JSON string. dbt 1.10 and later nest column `meta` under `config`; earlier projects declare it at the top level, and both are read. |
 
 ### `AGENTS.DBT_DEPENDENCY`
 
@@ -757,7 +759,7 @@ The following provider names are reserved:
 | `AGENTS.ROOT` | core | Provider registry and skill delivery surface upserted by source workflows |
 | `AGENTS.SKILL_USE` | skills | Parsed skill schema and table use declarations |
 | `AGENTS.DBT_MODEL` | dbt | dbt models with database, schema, materialization, documentation, path, tags, and meta |
-| `AGENTS.DBT_COLUMN` | dbt | Documented dbt model columns |
+| `AGENTS.DBT_COLUMN` | dbt | Documented dbt model columns with data type, description, and meta |
 | `AGENTS.DBT_DEPENDENCY` | dbt | Direct dbt dependency edges |
 | `AGENTS.LOOKML_VIEW` | LookML | LookML views and view-level context |
 | `AGENTS.LOOKML_DIMENSION` | LookML | LookML dimensions and dimension groups |

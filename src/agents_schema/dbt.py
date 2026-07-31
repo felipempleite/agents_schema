@@ -33,6 +33,7 @@ DBT_COLUMN = TableSchema(
         Column("column_name", "varchar", nullable=False),
         Column("data_type", "varchar"),
         Column("description", "text"),
+        Column("meta", "text"),
     ),
     primary_key=("model_id", "column_name"),
 )
@@ -98,6 +99,7 @@ def _ingest(dest: Destination, manifest: dict) -> None:
                 col_name,
                 col_info.get("data_type") or "",
                 col_info.get("description") or "",
+                json.dumps(col_info.get("config", {}).get("meta") or col_info.get("meta") or {}),
             ))
 
         for dep_uid in node.get("depends_on", {}).get("nodes", []):
