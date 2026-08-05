@@ -125,7 +125,7 @@ on:
 
 jobs:
   agents-schema-sigma:
-    uses: dbt-labs/agents_schema/.github/workflows/agents-schema-sigma.yml@v0.0.9
+    uses: dbt-labs/agents_schema/.github/workflows/agents-schema-sigma.yml@v0.0.11
     with:
       sigma-dir: sigma
     secrets:

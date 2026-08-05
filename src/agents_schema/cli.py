@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from . import __version__, dbt, lookml, osi, sigma, skills, snowflake_semantic
+from . import __version__, dbt, lookml, omni, osi, sigma, skills, snowflake_semantic
 from .config import ConfigError
 from .dbt_profiles import dbt_adapter_package_from_profiles_file
 from .destinations import warehouse_type_from_env

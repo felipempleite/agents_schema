@@ -236,11 +236,11 @@ source, examples, README, and spec.
 Pin exact tags in your workflows:
 
 ```yaml
-uses: dbt-labs/agents_schema/.github/workflows/agents-schema-dbt.yml@v0.0.10
+uses: dbt-labs/agents_schema/.github/workflows/agents-schema-dbt.yml@v0.0.11
 ```
 
 To upgrade, change only the tag in the `uses:` line. The current release tag is
-`v0.0.10`.
+`v0.0.11`.
 
 ### Specification
 

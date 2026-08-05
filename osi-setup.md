@@ -100,7 +100,7 @@ on:
 
 jobs:
   agents-schema-osi:
-    uses: dbt-labs/agents_schema/.github/workflows/agents-schema-osi.yml@v0.0.10
+    uses: dbt-labs/agents_schema/.github/workflows/agents-schema-osi.yml@v0.0.11
     with:
       osi-dir: osi
     secrets:
