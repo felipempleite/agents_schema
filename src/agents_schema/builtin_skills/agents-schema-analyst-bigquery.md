@@ -114,8 +114,8 @@ Replace `<project_id>` with the actual project ID from `agents.yml` throughout.
 | `` `<project_id>.agents.omni_dimension` `` | `view_name`, `field_name`, `sql`, `description` |
 | `` `<project_id>.agents.omni_topic` `` | `topic_name`, `base_view`, `label`, `group_label`, `description`, `ai_context` |
 | `` `<project_id>.agents.omni_topic_join` `` | `topic_name`, `from_view`, `to_view` |
-| `` `<project_id>.agents.dbt_model` `` | `unique_id`, `name`, `schema_name`, `description` |
-| `` `<project_id>.agents.dbt_column` `` | `model_id`, `column_name`, `data_type`, `description` |
+| `` `<project_id>.agents.dbt_model` `` | `unique_id`, `name`, `schema_name`, `description`, `meta` |
+| `` `<project_id>.agents.dbt_column` `` | `model_id`, `column_name`, `data_type`, `description`, `meta` |
 
 ## Common mistakes
 

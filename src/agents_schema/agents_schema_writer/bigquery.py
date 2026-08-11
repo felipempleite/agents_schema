@@ -138,6 +138,8 @@ def _bigquery_schema_field(bigquery: Any, column: Column) -> Any:
 def _bigquery_type(column: Column) -> str:
     if column.kind == "boolean":
         return "BOOL"
+    if column.kind == "json":
+        return "JSON"
     if column.kind in {"text", "varchar"}:
         return "STRING"
     raise ValueError(f"unsupported column kind: {column.kind}")

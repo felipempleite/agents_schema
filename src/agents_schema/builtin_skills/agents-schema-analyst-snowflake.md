@@ -103,8 +103,8 @@ be UPPERCASE when you query them.
 | `AGENTS.omni_dimension` | `view_name`, `field_name`, `sql`, `description` |
 | `AGENTS.omni_topic` | `topic_name`, `base_view`, `label`, `group_label`, `description`, `ai_context` |
 | `AGENTS.omni_topic_join` | `topic_name`, `from_view`, `to_view` |
-| `AGENTS.dbt_model` | `unique_id`, `name`, `schema_name`, `description` |
-| `AGENTS.dbt_column` | `model_id`, `column_name`, `data_type`, `description` |
+| `AGENTS.dbt_model` | `unique_id`, `name`, `schema_name`, `description`, `meta` |
+| `AGENTS.dbt_column` | `model_id`, `column_name`, `data_type`, `description`, `meta` |
 
 ## Common mistakes
 

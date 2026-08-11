@@ -6,13 +6,15 @@ from typing import Any, Iterable
 from .schema import Column, TableSchema
 
 
-def bind_json_array_rows(table: TableSchema, rows: Iterable[tuple[Any, ...]]) -> list[tuple[Any, ...]]:
+def bind_json_rows(table: TableSchema, rows: Iterable[tuple[Any, ...]]) -> list[tuple[Any, ...]]:
     bind_rows = []
     for row in rows:
         bind_row = []
         for index, value in enumerate(row):
             if index in table.array_indexes:
                 bind_row.append(json.dumps(value or []))
+            elif index in table.json_indexes:
+                bind_row.append(json.dumps(value or {}))
             else:
                 bind_row.append(value)
         bind_rows.append(tuple(bind_row))
@@ -45,4 +47,6 @@ def rows_json_for_table(table: TableSchema, rows: Iterable[tuple[Any, ...]]) -> 
 def databricks_placeholder(column: Column) -> str:
     if column.kind == "array":
         return "from_json(?, 'array<string>')"
+    if column.kind == "json":
+        return "parse_json(?)"
     return "?"

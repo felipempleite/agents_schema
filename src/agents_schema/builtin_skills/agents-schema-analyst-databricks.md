@@ -123,8 +123,8 @@ Replace `<catalog>` with the actual catalog name from `agents.yml` throughout.
 | `<catalog>.agents.omni_dimension` | `view_name`, `field_name`, `sql`, `description` |
 | `<catalog>.agents.omni_topic` | `topic_name`, `base_view`, `label`, `group_label`, `description`, `ai_context` |
 | `<catalog>.agents.omni_topic_join` | `topic_name`, `from_view`, `to_view` |
-| `<catalog>.agents.dbt_model` | `unique_id`, `name`, `schema_name`, `description` |
-| `<catalog>.agents.dbt_column` | `model_id`, `column_name`, `data_type`, `description` |
+| `<catalog>.agents.dbt_model` | `unique_id`, `name`, `schema_name`, `description`, `meta` |
+| `<catalog>.agents.dbt_column` | `model_id`, `column_name`, `data_type`, `description`, `meta` |
 
 ## Common mistakes
 
