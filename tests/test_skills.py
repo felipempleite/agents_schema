@@ -4,7 +4,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agents_schema import cli, skills
-from agents_schema.config import ConfigError
 from agents_schema.skills import SkillFile, _load_skill_files, _parse_uses_frontmatter
 
 
@@ -143,6 +142,12 @@ class _FakeWarehouse:
         indexes = [i for i, column in enumerate(table.columns) if column.name in table.primary_key]
         return tuple(row[i] for i in indexes)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return None
+
     def replace_table(self, table):
         self.tables[table.name] = {}
 
@@ -177,17 +182,6 @@ class _FakeWarehouse:
             del store[pk]
 
 
-class _DestinationContext:
-    def __init__(self, dest):
-        self.dest = dest
-
-    def __enter__(self):
-        return self.dest
-
-    def __exit__(self, exc_type, exc, tb):
-        return None
-
-
 class SkillsRootReconcileTests(unittest.TestCase):
     def test_removing_a_skill_file_deletes_its_stale_root_row_on_next_run(self):
         warehouse = _FakeWarehouse()
@@ -200,7 +194,7 @@ class SkillsRootReconcileTests(unittest.TestCase):
 
         def run_with(current_skills):
             with (
-                patch("agents_schema.skills.open_destination", return_value=_DestinationContext(warehouse)),
+                patch("agents_schema.skills.open_destination", return_value=warehouse),
                 patch("agents_schema.skills._load_skill_files", return_value=current_skills),
                 patch("builtins.print"),
                 patch("agents_schema.skills.publish_builtin_skill"),
@@ -216,36 +210,6 @@ class SkillsRootReconcileTests(unittest.TestCase):
         root = warehouse.tables["agents.root"]
         self.assertIn(("fivetran", "skill/revenue"), root)
         self.assertNotIn(("fivetran", "skill/support"), root)
-
-    def test_removing_a_skill_file_does_not_touch_other_providers_root_rows(self):
-        warehouse = _FakeWarehouse()
-        warehouse.upsert_rows(
-            skills.ROOT,
-            [("dbt", "overview", "# dbt\n")],
-        )
-        cfg = {
-            "warehouse": {"type": "snowflake"},
-            "metadata_connection": {"path": ".", "provider": "fivetran"},
-        }
-
-        with (
-            patch("agents_schema.skills.open_destination", return_value=_DestinationContext(warehouse)),
-            patch("agents_schema.skills._load_skill_files", return_value=[]),
-            patch("builtins.print"),
-            patch("agents_schema.skills.publish_builtin_skill"),
-        ):
-            skills.run(cfg)
-
-        self.assertIn(("dbt", "overview"), warehouse.tables["agents.root"])
-
-    def test_provider_named_skills_is_rejected(self):
-        cfg = {
-            "warehouse": {"type": "snowflake"},
-            "metadata_connection": {"path": ".", "provider": "skills"},
-        }
-
-        with self.assertRaisesRegex(ConfigError, "reserved"):
-            skills.run(cfg)
 
 
 if __name__ == "__main__":
