@@ -34,14 +34,18 @@ class AgentsSchemaWriter(ABC):
         rows: Iterable[tuple[Any, ...]],
         scope: tuple[str, Any] | None = None,
     ) -> None:
-        """Upsert rows, then delete anything absent from them.
+        """Make the table (or a slice of it) match exactly what's passed in.
 
-        Without `scope`, every row in the table is a deletion candidate — only
-        use this on a table one caller owns exclusively. With `scope` as a
-        (column, value) pair, deletion only considers rows matching that column
-        value; rows outside it are left alone regardless of `rows`. This is how
-        a caller can safely reconcile its own slice of a table shared across
-        multiple providers (e.g. AGENTS.ROOT), without touching anyone else's.
+        Without `scope`, this reconciles the whole table: upsert rows, then
+        delete anything absent from them. Only use this on a table one caller
+        owns exclusively.
+
+        With `scope` as a (column, value) pair, this instead deletes every
+        existing row matching that column value, then inserts `rows` fresh —
+        a full replace of just that slice, not a diff. This is how a caller
+        can safely reconcile its own slice of a table shared across multiple
+        providers (e.g. AGENTS.ROOT: one provider's rows are replaced, every
+        other provider's rows are untouched since they don't match `scope`).
         """
 
     @abstractmethod

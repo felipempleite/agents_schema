@@ -73,8 +73,12 @@ class DatabricksAgentsSchemaWriter(AgentsSchemaWriter):
     ) -> None:
         rows = list(rows)
         self.ensure_table(table)
+        if scope is not None:
+            self._delete_scope(table, scope)
+            self.upsert_rows(table, rows)
+            return
         self.upsert_rows(table, rows)
-        self._delete_absent_rows(table, primary_key_rows(table, rows), scope)
+        self._delete_absent_rows(table, primary_key_rows(table, rows))
 
     def close(self) -> None:
         self._connection.close()
@@ -91,11 +95,10 @@ class DatabricksAgentsSchemaWriter(AgentsSchemaWriter):
             raise ConfigError(f"expected a simple Databricks identifier: {identifier}")
         return f"`{identifier}`"
 
-    def _scope_sql(self, scope: tuple[str, Any] | None) -> tuple[str | None, tuple[Any, ...]]:
-        if scope is None:
-            return None, ()
+    def _delete_scope(self, table: TableSchema, scope: tuple[str, Any]) -> None:
         column, value = scope
-        return f"{self._identifier(column)} = ?", (value,)
+        with self._connection.cursor() as cursor:
+            cursor.execute(f"DELETE FROM {self._table_ref(table)} WHERE {self._identifier(column)} = ?", [value])
 
     def _column_definitions(self, table: TableSchema) -> str:
         return ", ".join(
@@ -146,19 +149,10 @@ class DatabricksAgentsSchemaWriter(AgentsSchemaWriter):
             f"WHEN NOT MATCHED THEN INSERT ({insert_columns}) VALUES ({insert_values})"
         )
 
-    def _delete_absent_rows(
-        self,
-        table: TableSchema,
-        key_rows: list[tuple[Any, ...]],
-        scope: tuple[str, Any] | None = None,
-    ) -> None:
+    def _delete_absent_rows(self, table: TableSchema, key_rows: list[tuple[Any, ...]]) -> None:
         with self._connection.cursor() as cursor:
-            scope_sql, scope_params = self._scope_sql(scope)
             if not key_rows:
-                if scope_sql:
-                    cursor.execute(f"DELETE FROM {self._table_ref(table)} WHERE {scope_sql}", list(scope_params))
-                else:
-                    cursor.execute(f"DELETE FROM {self._table_ref(table)}")
+                cursor.execute(f"DELETE FROM {self._table_ref(table)}")
                 return
             source_sql = " UNION ALL ".join(
                 "SELECT " + ", ".join(f"? AS {self._identifier(column)}" for column in table.primary_key)
@@ -168,12 +162,13 @@ class DatabricksAgentsSchemaWriter(AgentsSchemaWriter):
                 f"target.{self._identifier(column)} = source.{self._identifier(column)}"
                 for column in table.primary_key
             )
-            not_exists_sql = f"NOT EXISTS (\n    SELECT 1 FROM ({source_sql}) AS source\n    WHERE {exists_sql}\n)"
-            where_sql = f"{scope_sql} AND {not_exists_sql}" if scope_sql else not_exists_sql
             cursor.execute(
                 f"DELETE FROM {self._table_ref(table)} AS target\n"
-                f"WHERE {where_sql}",
-                list(scope_params) + list(flatten(key_rows)),
+                f"WHERE NOT EXISTS (\n"
+                f"    SELECT 1 FROM ({source_sql}) AS source\n"
+                f"    WHERE {exists_sql}\n"
+                f")",
+                list(flatten(key_rows)),
             )
 
 
