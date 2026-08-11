@@ -7,7 +7,7 @@ from agents_schema.config import ConfigError
 
 from .base import AgentsSchemaWriter
 from .schema import AGENTS_SCHEMA, Column, TableSchema
-from .utils import batched, bind_json_array_rows, databricks_placeholder, flatten, primary_key_rows
+from .utils import batched, bind_json_rows, databricks_placeholder, flatten, primary_key_rows
 
 BATCH_SIZE = 1000
 DATABRICKS_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
@@ -49,7 +49,7 @@ class DatabricksAgentsSchemaWriter(AgentsSchemaWriter):
                 cursor.execute(f"DELETE FROM {self._table_ref(table)} WHERE {where_sql}", list(row))
 
     def insert_rows(self, table: TableSchema, rows: Iterable[tuple[Any, ...]]) -> None:
-        bind_rows = bind_json_array_rows(table, list(rows))
+        bind_rows = bind_json_rows(table, list(rows))
         if not bind_rows:
             return
         with self._connection.cursor() as cursor:
@@ -58,7 +58,7 @@ class DatabricksAgentsSchemaWriter(AgentsSchemaWriter):
 
     def upsert_rows(self, table: TableSchema, rows: Iterable[tuple[Any, ...]]) -> None:
         self.ensure_table(table)
-        bind_rows = bind_json_array_rows(table, list(rows))
+        bind_rows = bind_json_rows(table, list(rows))
         if not bind_rows:
             return
         with self._connection.cursor() as cursor:
@@ -161,6 +161,8 @@ class DatabricksAgentsSchemaWriter(AgentsSchemaWriter):
 def _databricks_type(column: Column) -> str:
     if column.kind == "array":
         return "ARRAY<STRING>"
+    if column.kind == "json":
+        return "VARIANT"
     if column.kind == "boolean":
         return "BOOLEAN"
     if column.kind in {"text", "varchar"}:

@@ -23,5 +23,9 @@ class TableSchema:
         return {index for index, column in enumerate(self.columns) if column.kind == "array"}
 
     @property
+    def json_indexes(self) -> set[int]:
+        return {index for index, column in enumerate(self.columns) if column.kind == "json"}
+
+    @property
     def base_name(self) -> str:
         return self.name.split(".")[-1]

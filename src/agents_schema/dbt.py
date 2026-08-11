@@ -22,7 +22,7 @@ DBT_MODEL = TableSchema(
         Column("description", "text"),
         Column("file_path", "varchar"),
         Column("tags", "array"),
-        Column("meta", "text"),
+        Column("meta", "json"),
     ),
     primary_key=("unique_id",),
 )
@@ -33,7 +33,7 @@ DBT_COLUMN = TableSchema(
         Column("column_name", "varchar", nullable=False),
         Column("data_type", "varchar"),
         Column("description", "text"),
-        Column("meta", "text"),
+        Column("meta", "json"),
     ),
     primary_key=("model_id", "column_name"),
 )
@@ -90,7 +90,7 @@ def _ingest(dest: Destination, manifest: dict) -> None:
             node.get("description") or "",
             node.get("original_file_path"),
             list(node.get("tags", [])),
-            json.dumps(node.get("config", {}).get("meta") or node.get("meta") or {}),
+            node.get("config", {}).get("meta") or node.get("meta") or {},
         ))
 
         for col_name, col_info in node.get("columns", {}).items():
@@ -99,7 +99,7 @@ def _ingest(dest: Destination, manifest: dict) -> None:
                 col_name,
                 col_info.get("data_type") or "",
                 col_info.get("description") or "",
-                json.dumps(col_info.get("config", {}).get("meta") or col_info.get("meta") or {}),
+                col_info.get("config", {}).get("meta") or col_info.get("meta") or {},
             ))
 
         for dep_uid in node.get("depends_on", {}).get("nodes", []):

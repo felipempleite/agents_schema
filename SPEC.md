@@ -196,7 +196,7 @@ CREATE OR REPLACE TABLE AGENTS.DBT_MODEL (
   description     TEXT,
   file_path       VARCHAR,
   tags            VARIANT,
-  meta            TEXT,
+  meta            VARIANT,
   PRIMARY KEY (unique_id)
 );
 ```
@@ -211,7 +211,7 @@ CREATE OR REPLACE TABLE AGENTS.DBT_MODEL (
 | `description` | `node.description`; empty string when missing. |
 | `file_path` | `node.original_file_path`. |
 | `tags` | `node.tags`, serialized as JSON into a Snowflake `VARIANT`. |
-| `meta` | `node.config.meta` when set, else top-level `node.meta`, else `{}`; serialized as a JSON string. |
+| `meta` | `node.config.meta` when set, else top-level `node.meta`, else `{}`; serialized as JSON into a native semi-structured column (`VARIANT` on Snowflake/Databricks, `JSON` on BigQuery). |
 
 ### `AGENTS.DBT_COLUMN`
 
@@ -223,7 +223,7 @@ CREATE OR REPLACE TABLE AGENTS.DBT_COLUMN (
   column_name VARCHAR NOT NULL,
   data_type   VARCHAR,
   description TEXT,
-  meta        TEXT,
+  meta        VARIANT,
   PRIMARY KEY (model_id, column_name)
 );
 ```
@@ -234,7 +234,7 @@ CREATE OR REPLACE TABLE AGENTS.DBT_COLUMN (
 | `column_name` | Key from `node.columns`. |
 | `data_type` | `column.data_type`; empty string when missing. |
 | `description` | `column.description`; empty string when missing. |
-| `meta` | `column.config.meta` when set, else top-level `column.meta`, else `{}`; serialized as a JSON string. |
+| `meta` | `column.config.meta` when set, else top-level `column.meta`, else `{}`; serialized as JSON into a native semi-structured column (`VARIANT` on Snowflake/Databricks, `JSON` on BigQuery). |
 
 ### `AGENTS.DBT_DEPENDENCY`
 

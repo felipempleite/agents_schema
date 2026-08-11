@@ -1,4 +1,3 @@
-import json
 import unittest
 
 from agents_schema.dbt import DBT_COLUMN, _ingest
@@ -57,17 +56,14 @@ class DbtColumnMetaTests(unittest.TestCase):
             for _model_id, column_name, _data_type, _description, meta in insert[2]
         }
 
-    def test_column_meta_serialized_from_config(self):
-        self.assertEqual(
-            json.loads(self.meta["order_id"]),
-            {"pii": False, "owner": "revenue-team"},
-        )
+    def test_column_meta_from_config(self):
+        self.assertEqual(self.meta["order_id"], {"pii": False, "owner": "revenue-team"})
 
-    def test_column_meta_serialized_from_top_level(self):
-        self.assertEqual(json.loads(self.meta["customer_email"]), {"pii": True})
+    def test_column_meta_from_top_level(self):
+        self.assertEqual(self.meta["customer_email"], {"pii": True})
 
     def test_column_meta_defaults_to_empty_object(self):
-        self.assertEqual(self.meta["amount"], "{}")
+        self.assertEqual(self.meta["amount"], {})
 
 
 if __name__ == "__main__":

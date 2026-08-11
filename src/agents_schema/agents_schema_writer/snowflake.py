@@ -8,7 +8,7 @@ from agents_schema.config import ConfigError
 
 from .base import AgentsSchemaWriter
 from .schema import AGENTS_SCHEMA, TableSchema
-from .utils import batched, bind_json_array_rows, flatten, primary_key_rows
+from .utils import batched, bind_json_rows, flatten, primary_key_rows
 
 INSERT_BATCH_SIZE = 1000
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
@@ -29,7 +29,7 @@ class SnowflakeAgentsSchemaWriter(AgentsSchemaWriter):
             cur.execute(_create_table_sql(table, AGENTS_SCHEMA))
 
     def upsert_rows(self, table: TableSchema, rows: Iterable[tuple[Any, ...]]) -> None:
-        bind_rows = bind_json_array_rows(table, rows)
+        bind_rows = bind_json_rows(table, rows)
         if not bind_rows:
             return
         with self._con.cursor() as cur:
@@ -39,7 +39,7 @@ class SnowflakeAgentsSchemaWriter(AgentsSchemaWriter):
                 cur.execute(_merge_sql(table, AGENTS_SCHEMA, len(batch)), flatten(batch))
 
     def insert_rows(self, table: TableSchema, rows: Iterable[tuple[Any, ...]]) -> None:
-        bind_rows = bind_json_array_rows(table, rows)
+        bind_rows = bind_json_rows(table, rows)
         if not bind_rows:
             return
         with self._con.cursor() as cur:
@@ -154,7 +154,7 @@ def _source_select_sql(table: TableSchema, row_count: int) -> str:
 
 
 def _placeholder(table: TableSchema, index: int) -> str:
-    if index in table.array_indexes:
+    if index in table.array_indexes or index in table.json_indexes:
         return "PARSE_JSON(%s)"
     return "%s"
 
@@ -195,6 +195,8 @@ def _identifier(identifier: str) -> str:
 
 def _type_sql(kind: str) -> str:
     if kind == "array":
+        return "VARIANT"
+    if kind == "json":
         return "VARIANT"
     if kind == "boolean":
         return "BOOLEAN"

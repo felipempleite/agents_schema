@@ -20,7 +20,7 @@ class BigQueryAgentsSchemaWriterTests(unittest.TestCase):
             writer.upsert_rows(
                 DBT_MODEL,
                 [
-                    ("model.pkg.orders", "orders", None, "analytics", "table", "", "models/orders.sql", [], "{}"),
+                    ("model.pkg.orders", "orders", None, "analytics", "table", "", "models/orders.sql", [], {}),
                     (
                         "model.pkg.customers",
                         "customers",
@@ -30,7 +30,7 @@ class BigQueryAgentsSchemaWriterTests(unittest.TestCase):
                         "desc",
                         "models/customers.sql",
                         ["mart"],
-                        "{}",
+                        {},
                     ),
                 ],
             )
@@ -54,7 +54,7 @@ class BigQueryAgentsSchemaWriterTests(unittest.TestCase):
 
             writer.reconcile_rows(
                 DBT_MODEL,
-                [("model.pkg.orders", "orders", None, "analytics", "table", "", "models/orders.sql", [], "{}")],
+                [("model.pkg.orders", "orders", None, "analytics", "table", "", "models/orders.sql", [], {})],
             )
 
         query_sql = next(call[1] for call in calls if call[0] == "query")
@@ -82,6 +82,8 @@ class BigQueryAgentsSchemaWriterTests(unittest.TestCase):
         tag_field = next(field for field in table.schema if field.args[0] == "tags")
         self.assertEqual(tag_field.args, ("tags", "STRING"))
         self.assertEqual(tag_field.kwargs["mode"], "REPEATED")
+        meta_field = next(field for field in table.schema if field.args[0] == "meta")
+        self.assertEqual(meta_field.args, ("meta", "JSON"))
         create_dataset_call = next(call for call in calls if call[0] == "create_dataset")
         self.assertEqual(create_dataset_call[1].location, "US")
 
@@ -94,8 +96,8 @@ class DatabricksAgentsSchemaWriterTests(unittest.TestCase):
         writer.upsert_rows(
             DBT_MODEL,
             [
-                ("model.pkg.orders", "orders", None, "analytics", "table", "", "models/orders.sql", [], "{}"),
-                ("model.pkg.customers", "customers", None, "analytics", "view", "desc", "models/customers.sql", ["mart"], "{}"),
+                ("model.pkg.orders", "orders", None, "analytics", "table", "", "models/orders.sql", [], {}),
+                ("model.pkg.customers", "customers", None, "analytics", "view", "desc", "models/customers.sql", ["mart"], {}),
             ],
         )
 
@@ -105,6 +107,7 @@ class DatabricksAgentsSchemaWriterTests(unittest.TestCase):
         self.assertIn("MERGE INTO `agents`.`dbt_model` AS target", merge_sql)
         self.assertEqual(merge_sql.count("SELECT ? AS"), 2)
         self.assertIn("from_json(?, 'array<string>') AS `tags`", merge_sql)
+        self.assertIn("parse_json(?) AS `meta`", merge_sql)
         self.assertIn("target.`unique_id` = source.`unique_id`", merge_sql)
         self.assertIn("WHEN MATCHED THEN UPDATE SET", merge_sql)
         self.assertNotIn("%s", merge_sql)
@@ -138,7 +141,7 @@ class DatabricksAgentsSchemaWriterTests(unittest.TestCase):
 
         writer.insert_rows(
             DBT_MODEL,
-            [("model.pkg.orders", "orders", None, "analytics", "table", "", "models/orders.sql", ["finance"], "{}")],
+            [("model.pkg.orders", "orders", None, "analytics", "table", "", "models/orders.sql", ["finance"], {})],
         )
 
         self.assertEqual(len(calls), 1)
@@ -154,7 +157,7 @@ class DatabricksAgentsSchemaWriterTests(unittest.TestCase):
 
         writer.reconcile_rows(
             DBT_MODEL,
-            [("model.pkg.orders", "orders", None, "analytics", "table", "", "models/orders.sql", [], "{}")],
+            [("model.pkg.orders", "orders", None, "analytics", "table", "", "models/orders.sql", [], {})],
         )
 
         delete_calls = [call for call in calls if call[0].startswith("DELETE FROM")]
