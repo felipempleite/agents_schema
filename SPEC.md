@@ -27,7 +27,7 @@ The implementation writes unquoted identifiers, so Snowflake stores table and co
 
 `AGENTS.ROOT` is the intended provider registry for the Agents Schema. It gives generic consumers one place to discover which providers have published metadata, how to use their tables, and which warehouse-delivered skills are available.
 
-The current dbt, LookML, OSI, and skills ingestion workflows upsert their own provider rows into `AGENTS.ROOT` and write the source-specific tables documented below. Each workflow preserves `ROOT` rows from other providers.
+The current dbt, LookML, OSI, and skills ingestion workflows write their own provider rows into `AGENTS.ROOT` and write the source-specific tables documented below. Each workflow only ever touches its own `(provider, key)` rows, never another provider's. dbt, LookML, and OSI publish a fixed set of overview rows and only ever upsert. The skills and snowflake_semantic workflows publish one row per file or per configured object, so on every run they reconcile: rows for files or objects no longer present are deleted, alongside the usual upsert of what's still there — deleting a skill markdown file or dropping a semantic view from the config is enough for `AGENTS.ROOT` to catch up on the next run, with no manual cleanup step.
 
 ```sql
 CREATE TABLE AGENTS.ROOT (
@@ -151,7 +151,7 @@ Each ingestion replaces its own table family with `CREATE OR REPLACE TABLE` and 
 
 The skills ingestion reads markdown files and publishes each file as a skill row in `AGENTS.ROOT`. It also parses compliant `uses` frontmatter into `AGENTS.SKILL_USE` so consumers can quickly find which skills may use a schema or table.
 
-Skill rows are stored in `AGENTS.ROOT` under the publisher passed to the CLI. The skills CLI defaults to `--provider user`. For example, `skills/revenue/arr.md` without an explicit provider is published as `(user, skill/revenue/arr)`, while the same file with `--provider fivetran` is published as `(fivetran, skill/revenue/arr)`.
+Skill rows are stored in `AGENTS.ROOT` under the publisher passed to the CLI. The skills CLI defaults to `--provider user`. For example, `skills/revenue/arr.md` without an explicit provider is published as `(user, skill/revenue/arr)`, while the same file with `--provider fivetran` is published as `(fivetran, skill/revenue/arr)`. Each run reconciles that provider's rows to exactly the markdown files present under `--skills-dir`: deleting a file removes its row on the next run. `--provider skills` is rejected, since that name is reserved for the built-in skill metadata described below.
 
 ### `AGENTS.SKILL_USE`
 
@@ -675,7 +675,7 @@ CREATE OR REPLACE TABLE AGENTS.SIGMA_METRIC (
 
 The Snowflake Semantic ingestion publishes pointer rows into `AGENTS.ROOT` for one or more named native Snowflake semantic views. It does not create additional `AGENTS.*` tables — the semantic definition (dimensions, metrics, relationships, and query behavior) lives in Snowflake itself and should be inspected there.
 
-Each semantic view produces one row in `AGENTS.ROOT` under provider `snowflake_semantic`. The key convention is `semantic_view/<fully_qualified_name>`.
+Each semantic view produces one row in `AGENTS.ROOT` under provider `snowflake_semantic`. The key convention is `semantic_view/<fully_qualified_name>`. Each run reconciles `snowflake_semantic`'s rows to exactly the `--semantic-view` values passed in: removing one from the invocation deletes its pointer row on the next run.
 
 The ingestion also publishes an overview row:
 

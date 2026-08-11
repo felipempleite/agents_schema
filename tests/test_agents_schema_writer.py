@@ -7,8 +7,13 @@ from types import ModuleType
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agents_schema.agents_schema_writer import BigQueryAgentsSchemaWriter, DatabricksAgentsSchemaWriter
+from agents_schema.agents_schema_writer import (
+    BigQueryAgentsSchemaWriter,
+    DatabricksAgentsSchemaWriter,
+    SnowflakeAgentsSchemaWriter,
+)
 from agents_schema.dbt import DBT_MODEL
+from agents_schema.root import ROOT
 
 
 class BigQueryAgentsSchemaWriterTests(unittest.TestCase):
@@ -86,6 +91,37 @@ class BigQueryAgentsSchemaWriterTests(unittest.TestCase):
         self.assertEqual(meta_field.args, ("meta", "JSON"))
         create_dataset_call = next(call for call in calls if call[0] == "create_dataset")
         self.assertEqual(create_dataset_call[1].location, "US")
+
+    def test_reconcile_rows_scoped_to_provider_deletes_only_within_scope(self):
+        calls = []
+        with _fake_bigquery_module():
+            writer = BigQueryAgentsSchemaWriter(_FakeBigQueryClient(calls), "p")
+
+            writer.reconcile_rows(
+                ROOT,
+                [("skills", "skill/revenue", "# Revenue\n")],
+                scope=("provider", "skills"),
+            )
+
+        query_calls = [call for call in calls if call[0] == "query"]
+        self.assertEqual(len(query_calls), 1)
+        merge_sql = query_calls[0][1]
+        self.assertIn("WHEN NOT MATCHED BY SOURCE AND target.`provider` = @scope_value THEN DELETE", merge_sql)
+        job_config = query_calls[0][2]
+        self.assertEqual(job_config.kwargs["query_parameters"][0].args, ("scope_value", "STRING", "skills"))
+
+    def test_reconcile_rows_scoped_to_provider_with_no_rows_still_scopes_delete(self):
+        calls = []
+        with _fake_bigquery_module():
+            writer = BigQueryAgentsSchemaWriter(_FakeBigQueryClient(calls), "p")
+
+            writer.reconcile_rows(ROOT, [], scope=("provider", "skills"))
+
+        query_calls = [call for call in calls if call[0] == "query"]
+        self.assertEqual(len(query_calls), 1)
+        self.assertIn("WHERE `provider` = @scope_value", query_calls[0][1])
+        job_config = query_calls[0][2]
+        self.assertEqual(job_config.kwargs["query_parameters"][0].args, ("scope_value", "STRING", "skills"))
 
 
 class DatabricksAgentsSchemaWriterTests(unittest.TestCase):
@@ -166,6 +202,66 @@ class DatabricksAgentsSchemaWriterTests(unittest.TestCase):
         self.assertIn("DELETE FROM `agents`.`dbt_model` AS target", delete_sql)
         self.assertIn("target.`unique_id` = source.`unique_id`", delete_sql)
         self.assertEqual(params, ["model.pkg.orders"])
+
+    def test_reconcile_rows_scoped_to_provider_deletes_only_within_scope(self):
+        calls = []
+        writer = DatabricksAgentsSchemaWriter(_fake_connection(calls))
+
+        writer.reconcile_rows(
+            ROOT,
+            [("skills", "skill/revenue", "# Revenue\n")],
+            scope=("provider", "skills"),
+        )
+
+        delete_calls = [call for call in calls if call[0].startswith("DELETE FROM")]
+        self.assertEqual(len(delete_calls), 1)
+        delete_sql, params = delete_calls[0]
+        self.assertIn("DELETE FROM `agents`.`root` AS target", delete_sql)
+        self.assertIn("WHERE `provider` = ? AND NOT EXISTS", delete_sql)
+        self.assertEqual(params[0], "skills")
+
+    def test_reconcile_rows_scoped_to_provider_with_no_rows_still_scopes_delete(self):
+        calls = []
+        writer = DatabricksAgentsSchemaWriter(_fake_connection(calls))
+
+        writer.reconcile_rows(ROOT, [], scope=("provider", "skills"))
+
+        delete_calls = [call for call in calls if call[0].startswith("DELETE FROM")]
+        self.assertEqual(len(delete_calls), 1)
+        delete_sql, params = delete_calls[0]
+        self.assertIn("DELETE FROM `agents`.`root` WHERE `provider` = ?", delete_sql)
+        self.assertEqual(params, ["skills"])
+
+
+class SnowflakeAgentsSchemaWriterTests(unittest.TestCase):
+    def test_reconcile_rows_scoped_to_provider_deletes_only_within_scope(self):
+        calls = []
+        writer = SnowflakeAgentsSchemaWriter(_fake_connection(calls))
+
+        writer.reconcile_rows(
+            ROOT,
+            [("skills", "skill/revenue", "# Revenue\n")],
+            scope=("provider", "skills"),
+        )
+
+        delete_calls = [call for call in calls if call[0].startswith("DELETE FROM")]
+        self.assertEqual(len(delete_calls), 1)
+        delete_sql, params = delete_calls[0]
+        self.assertIn("DELETE FROM agents.root AS target", delete_sql)
+        self.assertIn("WHERE provider = %s AND NOT EXISTS", delete_sql)
+        self.assertEqual(params[0], "skills")
+
+    def test_reconcile_rows_scoped_to_provider_with_no_rows_still_scopes_delete(self):
+        calls = []
+        writer = SnowflakeAgentsSchemaWriter(_fake_connection(calls))
+
+        writer.reconcile_rows(ROOT, [], scope=("provider", "skills"))
+
+        delete_calls = [call for call in calls if call[0].startswith("DELETE FROM")]
+        self.assertEqual(len(delete_calls), 1)
+        delete_sql, params = delete_calls[0]
+        self.assertIn("DELETE FROM agents.root WHERE provider = %s", delete_sql)
+        self.assertEqual(params, ("skills",))
 
 
 def _fake_connection(calls):

@@ -21,6 +21,9 @@ class FakeDestination:
     def delete_rows(self, table, key_columns, rows):
         self.calls.append(("delete", table.name, key_columns, list(rows)))
 
+    def reconcile_rows(self, table, rows, scope=None):
+        self.calls.append(("reconcile", table.name, list(rows), scope))
+
 
 class DestinationContext:
     def __init__(self, dest):
@@ -119,9 +122,10 @@ class ConnectorRootTests(unittest.TestCase):
 
         self.assertEqual(dest.calls[0][0], "upsert")
         self.assertEqual({row[0] for row in dest.calls[0][2]}, {"skills"})
-        self.assertEqual(dest.calls[1][0], "upsert")
+        self.assertEqual(dest.calls[1][0], "reconcile")
         self.assertEqual(dest.calls[1][1], "agents.root")
         self.assertEqual(dest.calls[1][2], [("fivetran", "skill/revenue", "# Revenue\n")])
+        self.assertEqual(dest.calls[1][3], ("provider", "fivetran"))
         self.assertEqual(dest.calls[2], ("replace", "agents.skill_use"))
         self.assertEqual(dest.calls[3][0], "insert")
         self.assertEqual(dest.calls[3][1], "agents.skill_use")
@@ -141,7 +145,7 @@ class ConnectorRootTests(unittest.TestCase):
         self.assertEqual({row[0] for row in dest.calls[0][2]}, {"sigma"})
         self.assertEqual([call[0] for call in dest.calls[1:5]], ["replace", "replace", "replace", "replace"])
 
-    def test_snowflake_semantic_run_upserts_root_overview_then_pointer_rows(self):
+    def test_snowflake_semantic_run_reconciles_root_scoped_to_its_own_provider(self):
         dest = FakeDestination()
         cfg = {
             "warehouse": {"type": "snowflake"},
@@ -158,18 +162,15 @@ class ConnectorRootTests(unittest.TestCase):
         ):
             snowflake_semantic.run(cfg)
 
-        self.assertEqual(len(dest.calls), 2)
-        # first call: overview row
-        self.assertEqual(dest.calls[0][0], "upsert")
+        self.assertEqual(len(dest.calls), 1)
+        self.assertEqual(dest.calls[0][0], "reconcile")
         self.assertEqual(dest.calls[0][1], "agents.root")
-        self.assertEqual({row[0] for row in dest.calls[0][2]}, {"snowflake_semantic"})
-        self.assertEqual({row[1] for row in dest.calls[0][2]}, {"overview"})
-        # second call: per-view pointer row
-        self.assertEqual(dest.calls[1][0], "upsert")
-        self.assertEqual(dest.calls[1][1], "agents.root")
-        self.assertEqual(dest.calls[1][2][0][0], "snowflake_semantic")
-        self.assertEqual(dest.calls[1][2][0][1], "semantic_view/ANALYTICS.FINANCE.REVENUE")
-        self.assertIn("Snowflake object: `ANALYTICS.FINANCE.REVENUE`", dest.calls[1][2][0][2])
+        rows = dest.calls[0][2]
+        self.assertEqual({row[0] for row in rows}, {"snowflake_semantic"})
+        self.assertEqual({row[1] for row in rows}, {"overview", "semantic_view/ANALYTICS.FINANCE.REVENUE"})
+        pointer_row = next(row for row in rows if row[1] == "semantic_view/ANALYTICS.FINANCE.REVENUE")
+        self.assertIn("Snowflake object: `ANALYTICS.FINANCE.REVENUE`", pointer_row[2])
+        self.assertEqual(dest.calls[0][3], ("provider", "snowflake_semantic"))
 
     def test_publish_skill_upserts_one_root_row_and_refreshes_its_uses(self):
         dest = FakeDestination()

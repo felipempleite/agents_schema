@@ -40,6 +40,10 @@ def run(cfg: dict) -> None:
     metadata = cfg["metadata_connection"]
     skills_dir = Path(metadata["path"])
     provider = metadata["provider"]
+    if provider == "skills":
+        raise ConfigError(
+            'provider "skills" is reserved for built-in skill metadata; choose a different --provider value'
+        )
     skills = _load_skill_files(skills_dir)
     root_rows = [(provider, skill.key, skill.content) for skill in skills]
     use_rows = [
@@ -54,7 +58,7 @@ def run(cfg: dict) -> None:
 
     with open_destination(cfg) as dest:
         upsert_provider_root(dest, "skills")
-        dest.upsert_rows(ROOT, root_rows)
+        dest.reconcile_rows(ROOT, root_rows, scope=("provider", provider))
         dest.replace_table(SKILL_USE)
         if use_rows:
             dest.insert_rows(SKILL_USE, use_rows)

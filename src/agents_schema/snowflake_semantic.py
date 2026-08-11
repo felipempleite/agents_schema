@@ -5,7 +5,7 @@ from collections.abc import Iterable
 
 from .config import ConfigError, warehouse_type
 from .destinations import Destination, open_destination
-from .root import ROOT, upsert_provider_root
+from .root import ROOT, provider_root_rows
 from .skills import publish_builtin_skill
 
 __all__ = ["publish_semantic_view_pointers", "run"]
@@ -22,10 +22,9 @@ def run(cfg: dict) -> None:
 
 
 def publish_semantic_view_pointers(dest: Destination, semantic_views: Iterable[str]) -> None:
-    upsert_provider_root(dest, PROVIDER)
-    rows = [_root_row(name) for name in _normalize_semantic_views(semantic_views)]
-    dest.upsert_rows(ROOT, rows)
-    print(f"  snowflake-semantic: {len(rows)} semantic views")
+    pointer_rows = [_root_row(name) for name in _normalize_semantic_views(semantic_views)]
+    dest.reconcile_rows(ROOT, provider_root_rows(PROVIDER) + pointer_rows, scope=("provider", PROVIDER))
+    print(f"  snowflake-semantic: {len(pointer_rows)} semantic views")
 
 
 def _semantic_views_from_config(cfg: dict) -> list[str]:

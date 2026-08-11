@@ -64,19 +64,33 @@ class SnowflakeAgentsSchemaWriter(AgentsSchemaWriter):
                     flatten(batch),
                 )
 
-    def reconcile_rows(self, table: TableSchema, rows: Iterable[tuple[Any, ...]]) -> None:
+    def reconcile_rows(
+        self,
+        table: TableSchema,
+        rows: Iterable[tuple[Any, ...]],
+        scope: tuple[str, Any] | None = None,
+    ) -> None:
         rows = list(rows)
         self.ensure_table(table)
         self.upsert_rows(table, rows)
-        self._delete_absent_rows(table, primary_key_rows(table, rows))
+        self._delete_absent_rows(table, primary_key_rows(table, rows), scope)
 
     def close(self) -> None:
         self._con.close()
 
-    def _delete_absent_rows(self, table: TableSchema, key_rows: list[tuple[Any, ...]]) -> None:
+    def _delete_absent_rows(
+        self,
+        table: TableSchema,
+        key_rows: list[tuple[Any, ...]],
+        scope: tuple[str, Any] | None = None,
+    ) -> None:
         with self._con.cursor() as cur:
+            scope_sql, scope_params = _scope_sql(scope)
             if not key_rows:
-                cur.execute(f"DELETE FROM {_table_name(table, AGENTS_SCHEMA)}")
+                if scope_sql:
+                    cur.execute(f"DELETE FROM {_table_name(table, AGENTS_SCHEMA)} WHERE {scope_sql}", scope_params)
+                else:
+                    cur.execute(f"DELETE FROM {_table_name(table, AGENTS_SCHEMA)}")
                 return
             source_columns = tuple(_column_for_delete_key(column) for column in table.primary_key)
             source_table = TableSchema(table.name, source_columns)
@@ -85,13 +99,12 @@ class SnowflakeAgentsSchemaWriter(AgentsSchemaWriter):
                 f"target.{_identifier(column)} = source.{_identifier(column)}"
                 for column in table.primary_key
             )
+            not_exists_sql = f"NOT EXISTS (\n    SELECT 1 FROM ({source_select}) AS source\n    WHERE {exists_sql}\n)"
+            where_sql = f"{scope_sql} AND {not_exists_sql}" if scope_sql else not_exists_sql
             cur.execute(
                 f"DELETE FROM {_table_name(table, AGENTS_SCHEMA)} AS target\n"
-                f"WHERE NOT EXISTS (\n"
-                f"    SELECT 1 FROM ({source_select}) AS source\n"
-                f"    WHERE {exists_sql}\n"
-                f")",
-                flatten(key_rows),
+                f"WHERE {where_sql}",
+                (*scope_params, *flatten(key_rows)),
             )
 
 
@@ -151,6 +164,13 @@ def _source_select_sql(table: TableSchema, row_count: int) -> str:
         f"{_placeholder(table, i)} AS {_identifier(column.name)}" for i, column in enumerate(table.columns)
     )
     return " UNION ALL ".join(row_select for _ in range(row_count))
+
+
+def _scope_sql(scope: tuple[str, Any] | None) -> tuple[str | None, tuple[Any, ...]]:
+    if scope is None:
+        return None, ()
+    column, value = scope
+    return f"{_identifier(column)} = %s", (value,)
 
 
 def _placeholder(table: TableSchema, index: int) -> str:

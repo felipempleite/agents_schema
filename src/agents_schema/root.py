@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from .destinations import Column, Destination, TableSchema
 
-__all__ = ["ROOT", "upsert_provider_root"]
+__all__ = ["ROOT", "provider_root_rows", "upsert_provider_root"]
 
 ROOT = TableSchema(
     "agents.root",
@@ -63,6 +63,9 @@ ROOT_ENTRIES = {
 }
 
 
+def provider_root_rows(provider: str) -> list[tuple[str, str, str]]:
+    return [(provider, key, content) for key, content in ROOT_ENTRIES[provider]]
+
+
 def upsert_provider_root(dest: Destination, provider: str) -> None:
-    rows = [(provider, key, content) for key, content in ROOT_ENTRIES[provider]]
-    dest.upsert_rows(ROOT, rows)
+    dest.upsert_rows(ROOT, provider_root_rows(provider))
