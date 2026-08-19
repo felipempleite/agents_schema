@@ -19,5 +19,5 @@ runs:
       env:
         AGENTS_SCHEMA_SIGMA_DIR: ${{ inputs.sigma-dir }}
       run: |
-        uvx --from "agents-schema==0.0.9" \
+        uvx --from "agents-schema==0.0.11" \
           agents-schema sigma --sigma-dir "$AGENTS_SCHEMA_SIGMA_DIR"
