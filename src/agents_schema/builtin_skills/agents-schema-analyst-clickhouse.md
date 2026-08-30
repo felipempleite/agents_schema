@@ -79,8 +79,12 @@ that instruction in `agents.*` and follow it — not to guess a formula, table, 
    `${other_field}` → look that field up and substitute recursively; `{% if %}…{% else %} X {% endif %}`
    → use the `{% else %}` branch. For Omni `sql`: the value is a quoted column reference
    (e.g. `'"AMOUNT"'`) — strip the outer quotes and use the inner identifier directly.
-   Dialect notes: use `dateDiff('unit', a, b)`, `toStartOfMonth(...)` for date math; JSON
-   columns support direct path access (`meta.owner`); string concat is `||` or `concat()`.
+   Dialect notes: use `dateDiff('unit', a, b)`, `toStartOfMonth(...)` for date math; string
+   concat is `||` or `concat()`. On ClickHouse 25.3+ the `meta` columns are native JSON with
+   direct path access (`meta.owner`); on older servers they are `String` holding JSON text, so
+   use `JSONExtractString(meta, 'owner')` (check with `SELECT toTypeName(meta) FROM ... LIMIT 1`
+   if unsure). Array columns such as OSI `expressions` hold JSON text per element: read fields
+   with `JSONExtractString(expressions[1], 'dialect')`.
 
 6. **Pick the time grain from metadata.** Use the time dimension the metadata marks
    (`osi_field.is_time_dimension`, or a LookML `dimension_group`). For "current"/snapshot

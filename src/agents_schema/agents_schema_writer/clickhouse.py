@@ -14,8 +14,8 @@ INSERT_BATCH_SIZE = 1000
 CLICKHOUSE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 
 # Lightweight DELETEs are applied as a mask immediately visible to subsequent
-# SELECTs; setting lightweight_deletes_sync=2 additionally waits for the delete
-# to execute on the current replica before returning.
+# SELECTs; setting lightweight_deletes_sync=2 additionally waits for the
+# delete to execute on all replicas before returning.
 _DELETE_SETTINGS = {"lightweight_deletes_sync": 2}
 
 
@@ -30,10 +30,13 @@ class ClickHouseAgentsSchemaWriter(AgentsSchemaWriter):
     - Declared primary keys become the MergeTree ``ORDER BY`` key. ClickHouse
       does not enforce uniqueness, so upserts are implemented as a scoped
       lightweight ``DELETE`` of the incoming keys followed by an ``INSERT``.
+    - Row values are never interpolated into SQL text: inserts go through the
+      driver's native ``client.insert`` binding and delete predicates bind key
+      values as query parameters.
     - ``array`` columns map to ``Array(String)``. ``json`` columns map to the
       native ``JSON`` type on servers that support it (25.3+, where the type is
       production-ready), and fall back to ``String`` holding JSON text on
-      older servers.
+      older or unidentifiable servers.
     """
 
     def __init__(self, client: Any) -> None:
@@ -62,11 +65,15 @@ class ClickHouseAgentsSchemaWriter(AgentsSchemaWriter):
         rows = list(rows)
         if not rows:
             return
-        columns = ", ".join(self._identifier(column.name) for column in table.columns)
-        for batch in batched(rows, INSERT_BATCH_SIZE):
-            values = ", ".join(self._row_literal(table, row) for row in batch)
-            self._command(
-                f"INSERT INTO {self._table_ref(table)} ({columns}) VALUES {values}"
+        self._validate_identifiers(table)
+        column_names = [column.name for column in table.columns]
+        data = [self._row_values(table, row) for row in rows]
+        for batch in batched(data, INSERT_BATCH_SIZE):
+            self._client.insert(
+                table.base_name,
+                list(batch),
+                column_names=column_names,
+                database=AGENTS_SCHEMA,
             )
 
     def delete_rows(
@@ -92,8 +99,13 @@ class ClickHouseAgentsSchemaWriter(AgentsSchemaWriter):
     def close(self) -> None:
         self._client.close()
 
-    def _command(self, sql: str, settings: dict[str, Any] | None = None) -> None:
-        self._client.command(sql, settings=settings)
+    def _command(
+        self,
+        sql: str,
+        settings: dict[str, Any] | None = None,
+        parameters: dict[str, Any] | None = None,
+    ) -> None:
+        self._client.command(sql, settings=settings, parameters=parameters)
 
     def _delete_matching_keys(
         self,
@@ -102,47 +114,55 @@ class ClickHouseAgentsSchemaWriter(AgentsSchemaWriter):
         key_rows: list[tuple[Any, ...]],
     ) -> None:
         for batch in batched(key_rows, INSERT_BATCH_SIZE):
+            predicate, parameters = self._key_predicate(key_columns, list(batch))
             self._command(
-                f"DELETE FROM {self._table_ref(table)} "
-                f"WHERE {self._key_tuple_sql(key_columns)} IN ({self._key_values_sql(batch)})",
+                f"DELETE FROM {self._table_ref(table)} WHERE {predicate}",
                 settings=_DELETE_SETTINGS,
+                parameters=parameters,
             )
 
     def _delete_absent_rows(self, table: TableSchema, key_rows: list[tuple[Any, ...]]) -> None:
         if not key_rows:
             self._command(f"TRUNCATE TABLE {self._table_ref(table)}")
             return
+        predicate, parameters = self._key_predicate(table.primary_key, key_rows)
         self._command(
-            f"DELETE FROM {self._table_ref(table)} "
-            f"WHERE {self._key_tuple_sql(table.primary_key)} NOT IN ({self._key_values_sql(key_rows)})",
+            f"DELETE FROM {self._table_ref(table)} WHERE NOT ({predicate})",
             settings=_DELETE_SETTINGS,
+            parameters=parameters,
         )
 
-    def _key_tuple_sql(self, key_columns: tuple[str, ...]) -> str:
-        identifiers = [self._identifier(column) for column in key_columns]
-        if len(identifiers) == 1:
-            return identifiers[0]
-        return "(" + ", ".join(identifiers) + ")"
+    def _key_predicate(
+        self, key_columns: tuple[str, ...], key_rows: list[tuple[Any, ...]]
+    ) -> tuple[str, dict[str, Any]]:
+        """Build a parameterized ``IN`` predicate; key values are never inlined."""
+        if len(key_columns) == 1:
+            column = self._identifier(key_columns[0])
+            values = [_key_text(row[0]) for row in key_rows]
+            return f"{column} IN {{keys:Array(String)}}", {"keys": values}
+        columns = "(" + ", ".join(self._identifier(column) for column in key_columns) + ")"
+        tuple_type = ", ".join(["String"] * len(key_columns))
+        values = [tuple(_key_text(value) for value in row) for row in key_rows]
+        return f"{columns} IN {{keys:Array(Tuple({tuple_type}))}}", {"keys": values}
 
-    def _key_values_sql(self, key_rows: list[tuple[Any, ...]]) -> str:
-        tuples = []
-        for row in key_rows:
-            literals = [_string_literal(value) for value in row]
-            tuples.append(literals[0] if len(literals) == 1 else "(" + ", ".join(literals) + ")")
-        return ", ".join(tuples)
-
-    def _row_literal(self, table: TableSchema, row: tuple[Any, ...]) -> str:
-        literals = []
+    def _row_values(self, table: TableSchema, row: tuple[Any, ...]) -> list[Any]:
+        values: list[Any] = []
         for index, (column, value) in enumerate(zip(table.columns, row, strict=True)):
             if index in table.array_indexes:
-                literals.append(_array_literal(value))
+                items = value or []
+                # Non-string elements (e.g. OSI expression dicts) are stored as
+                # JSON text, mirroring the JSON shape other destinations keep in
+                # VARIANT columns.
+                values.append(
+                    [item if isinstance(item, str) else json.dumps(item) for item in items]
+                )
             elif index in table.json_indexes:
-                literals.append(_string_literal(json.dumps(value or {})))
+                values.append(json.dumps(value or {}))
             elif column.kind == "boolean":
-                literals.append(_boolean_literal(value))
+                values.append(None if value is None else bool(value))
             else:
-                literals.append(_string_literal(value))
-        return "(" + ", ".join(literals) + ")"
+                values.append(None if value is None else str(value))
+        return values
 
     def _create_table_sql(self, prefix: str, table: TableSchema) -> str:
         definitions = ", ".join(
@@ -162,6 +182,11 @@ class ClickHouseAgentsSchemaWriter(AgentsSchemaWriter):
     def _table_ref(self, table: TableSchema) -> str:
         return f"{self._identifier(AGENTS_SCHEMA)}.{self._identifier(table.base_name)}"
 
+    def _validate_identifiers(self, table: TableSchema) -> None:
+        self._identifier(table.base_name)
+        for column in table.columns:
+            self._identifier(column.name)
+
     def _identifier(self, identifier: str) -> str:
         if not CLICKHOUSE_IDENTIFIER_RE.fullmatch(identifier):
             raise ConfigError(f"expected a simple ClickHouse identifier: {identifier}")
@@ -175,14 +200,15 @@ class ClickHouseAgentsSchemaWriter(AgentsSchemaWriter):
 
 
 def _supports_json_type(client: Any) -> bool:
+    """Fail closed: only use the native JSON type on a confirmed 25.3+ server."""
     version = getattr(client, "server_version", None)
     if not version:
-        return True
+        return False
     parts = str(version).split(".")
     try:
         major, minor = int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
     except ValueError:
-        return True
+        return False
     return (major, minor) >= (25, 3)
 
 
@@ -199,25 +225,5 @@ def _clickhouse_type(column: Column, json_type: str) -> str:
     raise ValueError(f"unsupported column kind: {column.kind}")
 
 
-def _string_literal(value: Any) -> str:
-    if value is None:
-        return "NULL"
-    escaped = str(value).replace("\\", "\\\\").replace("'", "\\'")
-    return f"'{escaped}'"
-
-
-def _array_literal(value: Any) -> str:
-    items = value or []
-    literals = []
-    for item in items:
-        # Non-string elements (e.g. OSI expression dicts) are stored as JSON text,
-        # mirroring the JSON shape other destinations keep in VARIANT columns.
-        text = item if isinstance(item, str) else json.dumps(item)
-        literals.append(_string_literal(text))
-    return "[" + ", ".join(literals) + "]"
-
-
-def _boolean_literal(value: Any) -> str:
-    if value is None:
-        return "NULL"
-    return "true" if value else "false"
+def _key_text(value: Any) -> str:
+    return value if isinstance(value, str) else str(value)

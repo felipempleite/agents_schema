@@ -16,13 +16,17 @@ secure: true                           # optional; defaults to true — set fals
 
 The connection uses the ClickHouse HTTP interface via
 [clickhouse-connect](https://github.com/ClickHouse/clickhouse-connect). The
-user needs permission to create the `agents` database and create, insert into,
-and delete from tables inside it:
+least-privilege setup is for an admin to create the `agents` database once and
+grant the sync user rights only inside it:
 
 ```sql
-GRANT CREATE DATABASE ON agents.* TO agents_schema_bot;
+CREATE DATABASE IF NOT EXISTS agents;
 GRANT CREATE TABLE, DROP TABLE, TRUNCATE, SELECT, INSERT, ALTER DELETE ON agents.* TO agents_schema_bot;
 ```
+
+(The writer also issues `CREATE DATABASE IF NOT EXISTS agents`, which is a
+no-op once the database exists; grant `CREATE DATABASE` to the sync user only
+if you want it to bootstrap the database itself.)
 
 Grant read access broadly so agents can consume the metadata:
 
