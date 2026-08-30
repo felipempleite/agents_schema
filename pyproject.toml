@@ -21,6 +21,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+    "clickhouse-connect>=0.8.0",
     "cryptography>=3.1.0",
     "databricks-sql-connector>=3.0.0,<5",
     "google-cloud-bigquery>=3.0.0",

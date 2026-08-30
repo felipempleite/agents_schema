@@ -7,7 +7,11 @@ from types import ModuleType
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agents_schema.agents_schema_writer import BigQueryAgentsSchemaWriter, DatabricksAgentsSchemaWriter
+from agents_schema.agents_schema_writer import (
+    BigQueryAgentsSchemaWriter,
+    ClickHouseAgentsSchemaWriter,
+    DatabricksAgentsSchemaWriter,
+)
 from agents_schema.dbt import DBT_MODEL
 
 
@@ -166,6 +170,109 @@ class DatabricksAgentsSchemaWriterTests(unittest.TestCase):
         self.assertIn("DELETE FROM `agents`.`dbt_model` AS target", delete_sql)
         self.assertIn("target.`unique_id` = source.`unique_id`", delete_sql)
         self.assertEqual(params, ["model.pkg.orders"])
+
+
+class ClickHouseAgentsSchemaWriterTests(unittest.TestCase):
+    def test_replace_table_creates_mergetree_ordered_by_primary_key(self):
+        calls = []
+        writer = ClickHouseAgentsSchemaWriter(_FakeClickHouseClient(calls))
+
+        writer.replace_table(DBT_MODEL)
+
+        sqls = [sql for sql, _ in calls]
+        self.assertEqual(sqls[0], "CREATE DATABASE IF NOT EXISTS `agents`")
+        create_sql = sqls[1]
+        self.assertIn("CREATE OR REPLACE TABLE `agents`.`dbt_model`", create_sql)
+        self.assertIn("`unique_id` String", create_sql)
+        self.assertIn("`description` Nullable(String)", create_sql)
+        self.assertIn("`tags` Array(String)", create_sql)
+        self.assertIn("`meta` JSON", create_sql)
+        self.assertIn("ENGINE = MergeTree ORDER BY (`unique_id`)", create_sql)
+
+    def test_upsert_rows_deletes_incoming_keys_then_inserts(self):
+        calls = []
+        writer = ClickHouseAgentsSchemaWriter(_FakeClickHouseClient(calls))
+
+        writer.upsert_rows(
+            DBT_MODEL,
+            [
+                ("model.pkg.orders", "orders", None, "analytics", "table", "", "models/orders.sql", [], {}),
+                ("model.pkg.customers", "customers", None, "analytics", "view", "desc", "models/customers.sql", ["mart"], {}),
+            ],
+        )
+
+        delete_calls = [(sql, settings) for sql, settings in calls if sql.startswith("DELETE")]
+        self.assertEqual(len(delete_calls), 1)
+        delete_sql, delete_settings = delete_calls[0]
+        self.assertIn("DELETE FROM `agents`.`dbt_model`", delete_sql)
+        self.assertIn("`unique_id` IN ('model.pkg.orders', 'model.pkg.customers')", delete_sql)
+        self.assertEqual(delete_settings, {"lightweight_deletes_sync": 2})
+
+        insert_calls = [sql for sql, _ in calls if sql.startswith("INSERT")]
+        self.assertEqual(len(insert_calls), 1)
+        insert_sql = insert_calls[0]
+        self.assertIn("INSERT INTO `agents`.`dbt_model`", insert_sql)
+        self.assertIn("(`unique_id`, `name`, `database_name`", insert_sql)
+        self.assertIn("NULL", insert_sql)
+        self.assertIn("['mart']", insert_sql)
+        self.assertIn("'{}'", insert_sql)
+        self.assertLess(calls.index((delete_calls[0])), calls.index((insert_sql, None)))
+
+    def test_insert_rows_escapes_string_literals(self):
+        calls = []
+        writer = ClickHouseAgentsSchemaWriter(_FakeClickHouseClient(calls))
+
+        writer.insert_rows(
+            DBT_MODEL,
+            [("model.pkg.o", "o", None, "analytics", "table", "it's a \\ test", "models/o.sql", [], {"a": 1})],
+        )
+
+        insert_sql = calls[0][0]
+        self.assertIn("'it\\'s a \\\\ test'", insert_sql)
+        self.assertIn("'{\"a\": 1}'", insert_sql)
+
+    def test_reconcile_rows_deletes_absent_primary_keys(self):
+        calls = []
+        writer = ClickHouseAgentsSchemaWriter(_FakeClickHouseClient(calls))
+
+        writer.reconcile_rows(
+            DBT_MODEL,
+            [("model.pkg.orders", "orders", None, "analytics", "table", "", "models/orders.sql", [], {})],
+        )
+
+        not_in_deletes = [sql for sql, _ in calls if "NOT IN" in sql]
+        self.assertEqual(len(not_in_deletes), 1)
+        self.assertIn("`unique_id` NOT IN ('model.pkg.orders')", not_in_deletes[0])
+
+    def test_reconcile_rows_truncates_when_empty(self):
+        calls = []
+        writer = ClickHouseAgentsSchemaWriter(_FakeClickHouseClient(calls))
+
+        writer.reconcile_rows(DBT_MODEL, [])
+
+        self.assertIn(("TRUNCATE TABLE `agents`.`dbt_model`", None), calls)
+
+    def test_multi_column_key_deletes_use_tuples(self):
+        from agents_schema.root import ROOT
+
+        calls = []
+        writer = ClickHouseAgentsSchemaWriter(_FakeClickHouseClient(calls))
+
+        writer.upsert_rows(ROOT, [("dbt", "overview", "# dbt")])
+
+        delete_sql = next(sql for sql, _ in calls if sql.startswith("DELETE"))
+        self.assertIn("(`provider`, `key`) IN (('dbt', 'overview'))", delete_sql)
+
+
+class _FakeClickHouseClient:
+    def __init__(self, calls):
+        self.calls = calls
+
+    def command(self, sql, settings=None):
+        self.calls.append((sql, settings))
+
+    def close(self):
+        pass
 
 
 def _fake_connection(calls):
