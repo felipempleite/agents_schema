@@ -263,10 +263,21 @@ class ClickHouseAgentsSchemaWriterTests(unittest.TestCase):
         delete_sql = next(sql for sql, _ in calls if sql.startswith("DELETE"))
         self.assertIn("(`provider`, `key`) IN (('dbt', 'overview'))", delete_sql)
 
+    def test_json_columns_fall_back_to_string_before_25_3(self):
+        calls = []
+        writer = ClickHouseAgentsSchemaWriter(_FakeClickHouseClient(calls, server_version="24.8.1.1"))
+
+        writer.replace_table(DBT_MODEL)
+
+        create_sql = calls[1][0]
+        self.assertIn("`meta` String", create_sql)
+        self.assertNotIn("`meta` JSON", create_sql)
+
 
 class _FakeClickHouseClient:
-    def __init__(self, calls):
+    def __init__(self, calls, server_version="26.1.1.1"):
         self.calls = calls
+        self.server_version = server_version
 
     def command(self, sql, settings=None):
         self.calls.append((sql, settings))

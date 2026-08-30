@@ -63,12 +63,15 @@ Supported destinations:
 - Snowflake
 - Databricks
 - BigQuery
+- ClickHouse ([destination notes](clickhouse-setup.md))
 
 ### Prerequisites
 
 Each workflow writes to your warehouse using a single GitHub Actions secret:
 `WAREHOUSE_CREDENTIALS`. Each source setup guide includes collapsible
-destination-specific examples for Snowflake, Databricks, and BigQuery.
+destination-specific examples for Snowflake, Databricks, and BigQuery; see
+[ClickHouse Setup](clickhouse-setup.md) for the ClickHouse credential shape
+and destination-specific mapping notes.
 
 ## Guides
 

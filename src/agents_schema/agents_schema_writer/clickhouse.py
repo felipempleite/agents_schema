@@ -30,12 +30,15 @@ class ClickHouseAgentsSchemaWriter(AgentsSchemaWriter):
     - Declared primary keys become the MergeTree ``ORDER BY`` key. ClickHouse
       does not enforce uniqueness, so upserts are implemented as a scoped
       lightweight ``DELETE`` of the incoming keys followed by an ``INSERT``.
-    - ``array`` columns map to ``Array(String)`` and ``json`` columns to the
-      native ``JSON`` type (ClickHouse 25.3+).
+    - ``array`` columns map to ``Array(String)``. ``json`` columns map to the
+      native ``JSON`` type on servers that support it (25.3+, where the type is
+      production-ready), and fall back to ``String`` holding JSON text on
+      older servers.
     """
 
     def __init__(self, client: Any) -> None:
         self._client = client
+        self._json_type: str | None = None
 
     def ensure_table(self, table: TableSchema) -> None:
         self._command(f"CREATE DATABASE IF NOT EXISTS {self._identifier(AGENTS_SCHEMA)}")
@@ -143,7 +146,7 @@ class ClickHouseAgentsSchemaWriter(AgentsSchemaWriter):
 
     def _create_table_sql(self, prefix: str, table: TableSchema) -> str:
         definitions = ", ".join(
-            f"{self._identifier(column.name)} {_clickhouse_type(column)}"
+            f"{self._identifier(column.name)} {_clickhouse_type(column, self._resolve_json_type())}"
             for column in table.columns
         )
         order_by = (
@@ -164,13 +167,31 @@ class ClickHouseAgentsSchemaWriter(AgentsSchemaWriter):
             raise ConfigError(f"expected a simple ClickHouse identifier: {identifier}")
         return f"`{identifier}`"
 
+    def _resolve_json_type(self) -> str:
+        """Use the native JSON type on 25.3+, else String holding JSON text."""
+        if self._json_type is None:
+            self._json_type = "JSON" if _supports_json_type(self._client) else "String"
+        return self._json_type
 
-def _clickhouse_type(column: Column) -> str:
+
+def _supports_json_type(client: Any) -> bool:
+    version = getattr(client, "server_version", None)
+    if not version:
+        return True
+    parts = str(version).split(".")
+    try:
+        major, minor = int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
+    except ValueError:
+        return True
+    return (major, minor) >= (25, 3)
+
+
+def _clickhouse_type(column: Column, json_type: str) -> str:
     if column.kind == "array":
         return "Array(String)"
     if column.kind == "json":
         # Nullable(JSON) is not supported; missing values are written as {}.
-        return "JSON"
+        return json_type
     if column.kind == "boolean":
         return "Nullable(Bool)" if column.nullable else "Bool"
     if column.kind in {"text", "varchar"}:
