@@ -111,7 +111,7 @@ and [examples/workflows/dbt-looker-osi.yml](examples/workflows/dbt-looker-osi.ym
 This repository is also a plugin marketplace for Codex and Claude Code. Its `agents-schema`
 plugin installs two independent skills before an agent connects to your warehouse:
 
-- `connect-warehouse` configures and verifies Snowflake, BigQuery, or Databricks access.
+- `connect-warehouse` configures and verifies Snowflake, BigQuery, Databricks, or ClickHouse access.
 - `agents-schema-search` discovers warehouse metadata through `AGENTS.ROOT` after a connection
   is available.
 
