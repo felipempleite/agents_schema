@@ -100,7 +100,9 @@ secure: true
 ```
 
 See [clickhouse-setup.md](clickhouse-setup.md) for grants, type mapping, and
-replicated-cluster notes.
+replicated-cluster notes. Managed dbt parse supports profiles with
+`type: clickhouse` (the [dbt-clickhouse](https://github.com/ClickHouse/dbt-clickhouse)
+adapter).
 
 </details>
 
