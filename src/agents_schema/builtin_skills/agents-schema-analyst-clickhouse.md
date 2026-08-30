@@ -87,7 +87,9 @@ that instruction in `agents.*` and follow it — not to guess a formula, table, 
    direct path access (`meta.owner`); on older servers they are `String` holding JSON text, so
    use `JSONExtractString(meta, 'owner')` (check with `SELECT toTypeName(meta) FROM ... LIMIT 1`
    if unsure). Array columns such as OSI `expressions` hold JSON text per element: read fields
-   with `JSONExtractString(expressions[1], 'dialect')`.
+   with `JSONExtractString(expressions[1], 'dialect')`. `ai_context` is usually a single-element
+   array holding either plain text or one JSON object (structured OSI context — read fields with
+   `JSONExtractString(ai_context[1], 'instructions')`).
 
 6. **Pick the time grain from metadata.** Use the time dimension the metadata marks
    (`osi_field.is_time_dimension`, or a LookML `dimension_group`). For "current"/snapshot

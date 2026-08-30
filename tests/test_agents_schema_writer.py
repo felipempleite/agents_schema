@@ -180,8 +180,9 @@ class ClickHouseAgentsSchemaWriterTests(unittest.TestCase):
         writer.replace_table(DBT_MODEL)
 
         sqls = [call[1] for call in calls if call[0] == "command"]
-        self.assertEqual(sqls[0], "CREATE DATABASE IF NOT EXISTS `agents`")
-        create_sql = sqls[1]
+        self.assertTrue(sqls[0].startswith("SELECT count() FROM system.databases"))
+        self.assertEqual(sqls[1], "CREATE DATABASE IF NOT EXISTS `agents`")
+        create_sql = sqls[2]
         self.assertIn("CREATE OR REPLACE TABLE `agents`.`dbt_model`", create_sql)
         self.assertIn("`unique_id` String", create_sql)
         self.assertIn("`description` Nullable(String)", create_sql)
@@ -276,7 +277,7 @@ class ClickHouseAgentsSchemaWriterTests(unittest.TestCase):
 
         writer.replace_table(DBT_MODEL)
 
-        create_sql = calls[1][1]
+        create_sql = next(call[1] for call in calls if "CREATE OR REPLACE TABLE" in call[1])
         self.assertIn("`meta` String", create_sql)
         self.assertNotIn("`meta` JSON", create_sql)
 
@@ -286,19 +287,65 @@ class ClickHouseAgentsSchemaWriterTests(unittest.TestCase):
 
         writer.replace_table(DBT_MODEL)
 
-        create_sql = calls[1][1]
+        create_sql = next(call[1] for call in calls if "CREATE OR REPLACE TABLE" in call[1])
         self.assertIn("`meta` String", create_sql)
         self.assertNotIn("`meta` JSON", create_sql)
 
+    def test_existing_database_is_not_recreated(self):
+        # CREATE DATABASE IF NOT EXISTS still requires the CREATE DATABASE
+        # grant when the database exists; the documented least-privilege user
+        # must be able to sync into an admin-created agents database.
+        calls = []
+        writer = ClickHouseAgentsSchemaWriter(_FakeClickHouseClient(calls, database_exists=True))
+
+        writer.replace_table(DBT_MODEL)
+        writer.ensure_table(DBT_MODEL)
+
+        sqls = [call[1] for call in calls if call[0] == "command"]
+        self.assertFalse(any(sql.startswith("CREATE DATABASE") for sql in sqls))
+        probes = [sql for sql in sqls if sql.startswith("SELECT count() FROM system.databases")]
+        self.assertEqual(len(probes), 1)
+
+    def test_array_values_preserve_object_and_string_shapes(self):
+        # OSI ai_context is a string OR an object (VARIANT on Snowflake); a
+        # non-list value must become a single element, never be iterated into
+        # dict keys or characters.
+        from agents_schema.osi import OSI_MODEL
+
+        calls = []
+        writer = ClickHouseAgentsSchemaWriter(_FakeClickHouseClient(calls))
+        structured = {"instructions": "Use amount_usd not amount for MRR.", "synonyms": ["mrr"]}
+
+        writer.insert_rows(
+            OSI_MODEL,
+            [
+                ("revenue", "1.0", "desc", ["mrr"], structured, None),
+                ("orders", "1.0", "desc", [], "prefer the signed-in customer grain", None),
+            ],
+        )
+
+        insert_calls = [call for call in calls if call[0] == "insert"]
+        self.assertEqual(len(insert_calls), 1)
+        data = insert_calls[0][2]
+        self.assertEqual(
+            data[0][4], ['{"instructions": "Use amount_usd not amount for MRR.", "synonyms": ["mrr"]}']
+        )
+        self.assertEqual(data[1][4], ["prefer the signed-in customer grain"])
+        self.assertEqual(data[1][5], [])
+
 
 class _FakeClickHouseClient:
-    def __init__(self, calls, server_version="26.1.1.1"):
+    def __init__(self, calls, server_version="26.1.1.1", database_exists=False):
         self.calls = calls
+        self.database_exists = database_exists
         if server_version is not None:
             self.server_version = server_version
 
     def command(self, sql, settings=None, parameters=None):
         self.calls.append(("command", sql, settings, parameters))
+        if sql.startswith("SELECT count() FROM system.databases"):
+            return 1 if self.database_exists else 0
+        return None
 
     def insert(self, table, data, column_names=None, database=None):
         self.calls.append(("insert", table, data, column_names, database))

@@ -42,14 +42,30 @@ class ClickHouseAgentsSchemaWriter(AgentsSchemaWriter):
     def __init__(self, client: Any) -> None:
         self._client = client
         self._json_type: str | None = None
+        self._database_verified = False
 
     def ensure_table(self, table: TableSchema) -> None:
-        self._command(f"CREATE DATABASE IF NOT EXISTS {self._identifier(AGENTS_SCHEMA)}")
+        self._ensure_database()
         self._command(self._create_table_sql("CREATE TABLE IF NOT EXISTS", table))
 
     def replace_table(self, table: TableSchema) -> None:
-        self._command(f"CREATE DATABASE IF NOT EXISTS {self._identifier(AGENTS_SCHEMA)}")
+        self._ensure_database()
         self._command(self._create_table_sql("CREATE OR REPLACE TABLE", table))
+
+    def _ensure_database(self) -> None:
+        if self._database_verified:
+            return
+        # CREATE DATABASE IF NOT EXISTS still requires the CREATE DATABASE
+        # grant when the database already exists, so probe first: the
+        # documented least-privilege setup grants the sync user rights only
+        # inside an admin-created agents database.
+        exists = self._client.command(
+            "SELECT count() FROM system.databases WHERE name = {db:String}",
+            parameters={"db": AGENTS_SCHEMA},
+        )
+        if not int(exists or 0):
+            self._command(f"CREATE DATABASE IF NOT EXISTS {self._identifier(AGENTS_SCHEMA)}")
+        self._database_verified = True
 
     def upsert_rows(self, table: TableSchema, rows: Iterable[tuple[Any, ...]]) -> None:
         if not table.primary_key:
@@ -149,10 +165,17 @@ class ClickHouseAgentsSchemaWriter(AgentsSchemaWriter):
         values: list[Any] = []
         for index, (column, value) in enumerate(zip(table.columns, row, strict=True)):
             if index in table.array_indexes:
-                items = [] if value is None else value
-                # Non-string elements (e.g. OSI expression dicts) are stored as
-                # JSON text, mirroring the JSON shape other destinations keep in
-                # VARIANT columns.
+                # Array-kind values are not always lists: OSI ai_context is a
+                # string OR an object (VARIANT on Snowflake). A non-list value
+                # becomes a single element so nothing is iterated into keys or
+                # characters; non-string elements are stored as JSON text,
+                # mirroring the JSON shape other destinations keep in VARIANT.
+                if value is None:
+                    items = []
+                elif isinstance(value, (list, tuple)):
+                    items = list(value)
+                else:
+                    items = [value]
                 values.append(
                     [item if isinstance(item, str) else json.dumps(item) for item in items]
                 )

@@ -21,12 +21,17 @@ grant the sync user rights only inside it:
 
 ```sql
 CREATE DATABASE IF NOT EXISTS agents;
-GRANT CREATE TABLE, DROP TABLE, TRUNCATE, SELECT, INSERT, ALTER DELETE ON agents.* TO agents_schema_bot;
+GRANT CREATE TABLE, DROP TABLE, TRUNCATE, SELECT, INSERT, ALTER DELETE, ALTER UPDATE ON agents.* TO agents_schema_bot;
 ```
 
-(The writer also issues `CREATE DATABASE IF NOT EXISTS agents`, which is a
-no-op once the database exists; grant `CREATE DATABASE` to the sync user only
-if you want it to bootstrap the database itself.)
+(`ALTER UPDATE` is required alongside `ALTER DELETE` because lightweight
+deletes are executed as an update of the internal `_row_exists` column.)
+
+(The writer checks `system.databases` first and only issues
+`CREATE DATABASE IF NOT EXISTS agents` when the database is missing — in
+ClickHouse, `IF NOT EXISTS` still requires the `CREATE DATABASE` grant even
+when the database already exists. Grant `CREATE DATABASE ON agents.*` to the
+sync user only if you want it to bootstrap the database itself.)
 
 Grant read access broadly so agents can consume the metadata:
 
@@ -48,7 +53,7 @@ Destination-specific mapping:
 | `AGENTS` schema | `agents` database |
 | `varchar` / `text` columns | `String` (`Nullable(String)` when nullable) |
 | `boolean` columns | `Bool` |
-| `array` columns | `Array(String)`; non-string elements are stored as JSON text |
+| `array` columns | `Array(String)`; non-string elements are stored as JSON text. A non-list value (OSI `ai_context` can be a plain string or an object) becomes a single element |
 | `json` columns | native `JSON` on 25.3+, `String` holding JSON text on older servers |
 | `PRIMARY KEY` | MergeTree `ORDER BY` key (ClickHouse does not enforce uniqueness) |
 | Table replacement | `CREATE OR REPLACE TABLE` (statement-atomic) + `INSERT` |
