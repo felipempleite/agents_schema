@@ -149,7 +149,7 @@ class ClickHouseAgentsSchemaWriter(AgentsSchemaWriter):
         values: list[Any] = []
         for index, (column, value) in enumerate(zip(table.columns, row, strict=True)):
             if index in table.array_indexes:
-                items = value or []
+                items = [] if value is None else value
                 # Non-string elements (e.g. OSI expression dicts) are stored as
                 # JSON text, mirroring the JSON shape other destinations keep in
                 # VARIANT columns.
@@ -157,7 +157,7 @@ class ClickHouseAgentsSchemaWriter(AgentsSchemaWriter):
                     [item if isinstance(item, str) else json.dumps(item) for item in items]
                 )
             elif index in table.json_indexes:
-                values.append(json.dumps(value or {}))
+                values.append(json.dumps({} if value is None else value))
             elif column.kind == "boolean":
                 values.append(None if value is None else bool(value))
             else:

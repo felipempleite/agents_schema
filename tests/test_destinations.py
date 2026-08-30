@@ -146,6 +146,17 @@ class DestinationSqlTests(unittest.TestCase):
         self.assertEqual(kwargs["port"], 8123)
         self.assertFalse(kwargs["secure"])
 
+    def test_clickhouse_credentials_parse_string_booleans_strictly(self):
+        kwargs = _clickhouse_connect_kwargs_from_secret(
+            {"type": "clickhouse", "host": "localhost", "password": "pw", "secure": "false"}
+        )
+        self.assertFalse(kwargs["secure"])
+
+        with self.assertRaises(ConfigError):
+            _clickhouse_connect_kwargs_from_secret(
+                {"type": "clickhouse", "host": "localhost", "password": "pw", "secure": "maybe"}
+            )
+
     def test_clickhouse_credentials_require_host(self):
         with self.assertRaises(ConfigError):
             _clickhouse_connect_kwargs_from_secret({"type": "clickhouse", "password": "pw"})

@@ -70,9 +70,12 @@ that instruction in `agents.*` and follow it — not to guess a formula, table, 
    ```sql
    SELECT engine FROM system.tables WHERE database = '<db>' AND name = '<table>';
    ```
-   For `ReplacingMergeTree`, add `FINAL` after the table name (`FROM db.table FINAL`) or
-   deduplicate explicitly (e.g. `argMax` by the version column) so aggregates are not inflated
-   by undead row versions. Plain `MergeTree` and views need no special handling.
+   Engine names may carry `Replicated`/`Shared` prefixes (`SharedReplacingMergeTree` on Cloud)
+   — judge by the suffix. For Replacing engines, add `FINAL` after the table name
+   (`FROM db.table FINAL`) or pick the latest row per key explicitly (e.g. `argMax` by the
+   version column). For Collapsing engines, use `FINAL` or aggregate through the `Sign` column
+   (e.g. `sum(value * Sign)`); `argMax` alone is not the collapsing semantic. Plain `MergeTree`
+   and views need no special handling.
 
 5. **Translate the formula to SQL.** OSI `expression` is usually plain SQL (e.g. `SUM(amount)`)
    — use it as-is against the resolved table. For LookML `sql`: `${TABLE}.col` → `col`;
@@ -133,7 +136,7 @@ exactly as they were created; the `agents.*` metadata objects are lowercase.
 | Mistake | Do instead |
 |---|---|
 | Picking a plausible-looking column or table for a metric | Read the metric/dataset `ai_context` and use exactly the column, table, and filter it names. |
-| Aggregating a `ReplacingMergeTree` table without `FINAL` | Check `system.tables.engine` first; use `FINAL` or `argMax` deduplication for Replacing/Collapsing engines. |
+| Aggregating a `ReplacingMergeTree` table without `FINAL` | Check `system.tables.engine` first (match the suffix — Cloud reports `Shared*`); use `FINAL`/`argMax` for Replacing engines, `FINAL`/`Sign`-aware sums for Collapsing engines. |
 | Reporting `$0` / no result for "year-to-date" | If current-year returns no rows, the data is historical — anchor to the latest year present and label it. |
 | Querying `AGENTS.ROOT` in uppercase | ClickHouse identifiers are case-sensitive; the metadata objects are lowercase `agents.root`. |
 | Querying a metric from the wrong table | The dataset/view metadata names the `source` and any "use X not Y" caveat. Follow it. |

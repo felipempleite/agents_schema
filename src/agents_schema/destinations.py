@@ -243,6 +243,14 @@ def _clickhouse_connect_kwargs_from_secret(destination: dict[str, Any]) -> dict[
     secure = destination.get("secure")
     if secure is None:
         secure = True
+    elif isinstance(secure, str):
+        lowered = secure.strip().lower()
+        if lowered in {"true", "1", "yes"}:
+            secure = True
+        elif lowered in {"false", "0", "no"}:
+            secure = False
+        else:
+            raise ConfigError(f"WAREHOUSE_CREDENTIALS.secure must be a boolean, got {secure!r}")
     kwargs: dict[str, Any] = {
         "host": host,
         "username": destination.get("user") or destination.get("username") or "default",

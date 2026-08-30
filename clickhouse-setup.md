@@ -51,28 +51,31 @@ Destination-specific mapping:
 | `array` columns | `Array(String)`; non-string elements are stored as JSON text |
 | `json` columns | native `JSON` on 25.3+, `String` holding JSON text on older servers |
 | `PRIMARY KEY` | MergeTree `ORDER BY` key (ClickHouse does not enforce uniqueness) |
-| Table replacement | atomic `CREATE OR REPLACE TABLE` |
+| Table replacement | `CREATE OR REPLACE TABLE` (statement-atomic) + `INSERT` |
 | `ROOT` upserts | scoped lightweight `DELETE` of incoming keys + `INSERT` |
 
-Because ClickHouse does not enforce primary keys, row uniqueness is guaranteed
+Because ClickHouse does not enforce primary keys, row uniqueness is maintained
 by the publish path (full table replacement per source family; delete-then-insert
-for `agents.root`), not by the engine. Treat the tables as generated metadata,
-not hand-edited state.
+for `agents.root`), not by the engine. This assumes one sync process runs at a
+time — the same assumption the sequential sync workflows make. Publishing is not
+transactional: a concurrent reader can briefly observe an empty family table
+during replacement, or a missing `root` row between the delete and the insert.
+Rerunning the sync repairs an interrupted publish (every operation is
+idempotent). Treat the tables as generated metadata, not hand-edited state.
 
 ## Deployment notes
 
-- **ClickHouse Cloud:** works out of the box; plain DDL is replicated
-  automatically.
+- **ClickHouse Cloud:** works out of the box — Cloud internally rewrites
+  `MergeTree` DDL to `SharedMergeTree`, so both metadata and data are shared by
+  all nodes.
 - **Self-hosted single node:** works out of the box on the default `Atomic`
   database engine.
-- **Self-hosted replicated clusters:** create the `agents` database with the
-  `Replicated` database engine before the first run so DDL and data replicate
-  across nodes:
-
-  ```sql
-  CREATE DATABASE agents ENGINE = Replicated('/clickhouse/databases/agents', '{shard}', '{replica}');
-  ```
-
+- **Self-hosted replicated clusters:** the writer creates plain `MergeTree`
+  tables, so table **data lives only on the node the sync connects to** (a
+  `Replicated` database engine would replicate DDL, not MergeTree data). Point
+  the sync and all metadata readers at the same node, or front it with a
+  load-balancer rule. Native `ReplicatedMergeTree` support is a possible
+  follow-up if there is demand.
 - **Minimum version:** 24.8+ recommended (recursive CTEs for the lineage
   queries in [SPEC.md](SPEC.md)); the native `JSON` column type is used on
   25.3+ and falls back to `String` on older servers.
